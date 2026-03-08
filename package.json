@@ -3,7 +3,11 @@
   "displayName": "JSX Preview",
   "description": "Live preview of JSX/TSX components in a VS Code webview panel",
   "version": "0.1.0",
-  "publisher": "nml",
+  "publisher": "dnamaz",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dnamaz/vscode-jsx-preview"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
