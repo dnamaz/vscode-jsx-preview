@@ -5,7 +5,7 @@ Live preview of JSX/TSX components in a VS Code webview panel. Open any `.jsx` o
 ## Install from GitHub
 
 ```bash
-git clone <this-repo-url>
+git clone https://github.com/dnamaz/vscode-jsx-preview.git
 cd vscode-jsx-preview
 npm install
 npm run compile
