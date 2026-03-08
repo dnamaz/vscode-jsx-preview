@@ -1,0 +1,56 @@
+{
+  "name": "jsx-preview",
+  "displayName": "JSX Preview",
+  "description": "Live preview of JSX/TSX components in a VS Code webview panel",
+  "version": "0.1.0",
+  "publisher": "nml",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      {
+        "command": "jsxPreview.open",
+        "title": "Preview JSX Component",
+        "icon": "$(open-preview)"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "jsxPreview.open",
+          "when": "resourceExtname =~ /\\.jsx$|\\.tsx$/",
+          "group": "navigation"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "jsxPreview.open",
+        "key": "ctrl+shift+j",
+        "mac": "cmd+shift+j",
+        "when": "editorLangId == javascriptreact || editorLangId == typescriptreact"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "npx @vscode/vsce package --allow-missing-repository"
+  },
+  "dependencies": {
+    "esbuild": "^0.24.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.5.0"
+  }
+}
