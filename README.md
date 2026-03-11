@@ -1,8 +1,18 @@
 # JSX Preview — VS Code Extension
 
-Live preview of JSX/TSX components in a VS Code webview panel. Open any `.jsx` or `.tsx` file and press **Cmd+Shift+J** (Mac) or **Ctrl+Shift+J** to see it rendered. Save the file to refresh automatically.
+Live preview of JSX/TSX components in a VS Code webview panel. Save the file to refresh automatically.
 
 ![Screenshot](screenshot.png)
+
+## Usage
+
+There are three ways to open a preview:
+
+- **Right-click** a `.jsx` or `.tsx` file in the **file explorer** and select **Preview JSX Component** — no need to open the file first.
+- **Right-click** inside an open `.jsx`/`.tsx` editor and select **Preview JSX Component**.
+- Press **Cmd+Shift+J** (Mac) or **Ctrl+Shift+J** (Windows/Linux) with a `.jsx`/`.tsx` file selected or open.
+
+The preview opens in a side panel. Every save refreshes it automatically, including when imported files change.
 
 ## Quick Start
 
@@ -31,16 +41,14 @@ export default function HelloWorld() {
 }
 ```
 
-Open the file in VS Code, press **Cmd+Shift+J**, and see it rendered in a side panel. Every save refreshes the preview.
-
 ## Install
 
 **From a release** (easiest):
 
-Download `jsx-preview-0.1.0.vsix` from [Releases](../../releases) and run:
+Download `jsx-preview-0.2.0.vsix` from [Releases](../../releases) and run:
 
 ```bash
-code --install-extension jsx-preview-0.1.0.vsix
+code --install-extension jsx-preview-0.2.0.vsix
 ```
 
 **From source:**
@@ -51,7 +59,7 @@ cd vscode-jsx-preview
 npm install
 npm run compile
 npm run package
-code --install-extension jsx-preview-0.1.0.vsix
+code --install-extension jsx-preview-0.2.0.vsix
 ```
 
 ## Development
@@ -65,5 +73,5 @@ npm run watch          # compile TypeScript in watch mode
 ## Build `.vsix`
 
 ```bash
-npm run package        # produces jsx-preview-0.1.0.vsix
+npm run package        # produces jsx-preview-0.2.0.vsix
 ```
