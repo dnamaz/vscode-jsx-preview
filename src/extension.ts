@@ -10,13 +10,22 @@ let outputChannel: vscode.OutputChannel;
 export function activate(context: vscode.ExtensionContext) {
   outputChannel = vscode.window.createOutputChannel("JSX Preview");
 
-  const openCmd = vscode.commands.registerCommand("jsxPreview.open", () => {
-    const editor = vscode.window.activeTextEditor;
-    if (!editor || !/\.(jsx|tsx)$/.test(editor.document.fileName)) {
+  const openCmd = vscode.commands.registerCommand("jsxPreview.open", async (uri?: vscode.Uri) => {
+    let filePath: string | undefined;
+
+    if (uri) {
+      filePath = uri.fsPath;
+    } else {
+      filePath = vscode.window.activeTextEditor?.document.fileName;
+    }
+
+    if (!filePath || !/\.(jsx|tsx)$/.test(filePath)) {
       vscode.window.showWarningMessage("Open a .jsx or .tsx file first.");
       return;
     }
-    openPreview(editor.document, context);
+
+    const doc = await vscode.workspace.openTextDocument(filePath);
+    openPreview(doc, context);
   });
 
   const onSave = vscode.workspace.onDidSaveTextDocument((doc) => {

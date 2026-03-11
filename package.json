@@ -2,7 +2,7 @@
   "name": "jsx-preview",
   "displayName": "JSX Preview",
   "description": "Live preview of JSX/TSX components in a VS Code webview panel",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "dnamaz",
   "repository": {
     "type": "git",
@@ -31,6 +31,20 @@
           "when": "resourceExtname =~ /\\.jsx$|\\.tsx$/",
           "group": "navigation"
         }
+      ],
+      "explorer/context": [
+        {
+          "command": "jsxPreview.open",
+          "when": "resourceExtname =~ /\\.jsx$|\\.tsx$/",
+          "group": "navigation"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "jsxPreview.open",
+          "when": "resourceExtname =~ /\\.jsx$|\\.tsx$/",
+          "group": "navigation"
+        }
       ]
     },
     "keybindings": [
@@ -38,7 +52,7 @@
         "command": "jsxPreview.open",
         "key": "ctrl+shift+j",
         "mac": "cmd+shift+j",
-        "when": "editorLangId == javascriptreact || editorLangId == typescriptreact"
+        "when": "resourceExtname =~ /\\.jsx$|\\.tsx$/"
       }
     ]
   },
