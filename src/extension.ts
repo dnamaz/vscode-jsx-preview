@@ -192,6 +192,7 @@ function buildHtml(bundle: string): string {
         content="default-src 'none';
                  style-src 'unsafe-inline';
                  script-src 'nonce-${nonce}';
+                 worker-src 'self' blob:;
                  connect-src http: https: ws: wss:;
                  img-src https: data:;
                  font-src https: data:;">
