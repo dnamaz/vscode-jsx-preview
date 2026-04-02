@@ -5,6 +5,7 @@ import * as fs from "fs";
 import * as os from "os";
 
 const panels = new Map<string, vscode.WebviewPanel>();
+const panelWatchers = new Map<string, vscode.FileSystemWatcher[]>();
 let outputChannel: vscode.OutputChannel;
 
 export function activate(context: vscode.ExtensionContext) {
@@ -79,7 +80,36 @@ async function openPreview(
   );
 
   panels.set(filePath, panel);
-  panel.onDidDispose(() => panels.delete(filePath));
+
+  const msgDisposable = panel.webview.onDidReceiveMessage(async (msg) => {
+    if (msg.type === "runInTerminal") {
+      const terminal = getOrCreateTerminal();
+      terminal.show(true);
+      terminal.sendText(msg.command);
+
+      if (msg.outputPath && msg.processDate) {
+        const workspaceRoot =
+          vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ||
+          path.dirname(filePath);
+        const absOutputPath = path.resolve(workspaceRoot, msg.outputPath, msg.processDate);
+
+        const old = panelWatchers.get(filePath) || [];
+        old.forEach((w) => w.dispose());
+
+        const watchers = watchPipelineOutput(absOutputPath, panel);
+        panelWatchers.set(filePath, watchers);
+        outputChannel.appendLine(`[CDL] Watching ${absOutputPath}`);
+      }
+    }
+  });
+
+  panel.onDidDispose(() => {
+    panels.delete(filePath);
+    msgDisposable.dispose();
+    const watchers = panelWatchers.get(filePath) || [];
+    watchers.forEach((w) => w.dispose());
+    panelWatchers.delete(filePath);
+  });
 
   await updatePreview(filePath, ctx);
 }
@@ -96,6 +126,77 @@ async function updatePreview(filePath: string, ctx: vscode.ExtensionContext) {
     panel.webview.html = buildErrorHtml(err.message || String(err));
     outputChannel.appendLine(`[ERR] ${path.basename(filePath)}: ${err.message}`);
   }
+}
+
+// ─── Terminal ─────────────────────────────────────────────────────
+
+function getOrCreateTerminal(): vscode.Terminal {
+  const existing = vscode.window.terminals.find((t) => t.name === "CDL Pipeline");
+  if (existing) return existing;
+  return vscode.window.createTerminal("CDL Pipeline");
+}
+
+// ─── File watcher ─────────────────────────────────────────────────
+
+function watchPipelineOutput(
+  outputPath: string,
+  panel: vscode.WebviewPanel
+): vscode.FileSystemWatcher[] {
+  const readAndPost = () => {
+    const payload: Record<string, unknown> = { type: "pipelineResults" };
+
+    const statusFile = path.join(outputPath, "cms_sync_status.txt");
+    if (fs.existsSync(statusFile)) {
+      payload.status = parseStatusFile(fs.readFileSync(statusFile, "utf8"));
+    }
+
+    const detailFile = path.join(outputPath, "cms_sync_detail.txt");
+    if (fs.existsSync(detailFile)) {
+      payload.detail = parseDetailFile(fs.readFileSync(detailFile, "utf8"));
+    }
+
+    if (payload.status || payload.detail) {
+      panel.webview.postMessage(payload);
+    }
+  };
+
+  const statusWatcher = vscode.workspace.createFileSystemWatcher(
+    new vscode.RelativePattern(vscode.Uri.file(outputPath), "cms_sync_status.txt")
+  );
+  statusWatcher.onDidCreate(readAndPost);
+  statusWatcher.onDidChange(readAndPost);
+
+  const detailWatcher = vscode.workspace.createFileSystemWatcher(
+    new vscode.RelativePattern(vscode.Uri.file(outputPath), "cms_sync_detail.txt")
+  );
+  detailWatcher.onDidCreate(readAndPost);
+  detailWatcher.onDidChange(readAndPost);
+
+  return [statusWatcher, detailWatcher];
+}
+
+function parseStatusFile(content: string): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const line of content.split("\n")) {
+    const match = line.trim().match(/^(\w+):\s*(.+)$/);
+    if (!match) continue;
+    const [, key, raw] = match;
+    const unquoted = raw.replace(/^"(.*)"$/, "$1");
+    const num = Number(unquoted);
+    result[key] = isNaN(num) ? unquoted : num;
+  }
+  return result;
+}
+
+function parseDetailFile(content: string): unknown[] {
+  return content
+    .split("\n")
+    .filter((line) => line.trim())
+    .map((line) => {
+      try { return JSON.parse(line); }
+      catch { return null; }
+    })
+    .filter(Boolean);
 }
 
 // ─── Bundler ──────────────────────────────────────────────────────
