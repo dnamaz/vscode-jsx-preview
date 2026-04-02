@@ -42,6 +42,7 @@ const fs = __importStar(require("fs"));
 const os = __importStar(require("os"));
 const panels = new Map();
 const panelWatchers = new Map();
+const panelRunState = new Map();
 let outputChannel;
 function activate(context) {
     outputChannel = vscode.window.createOutputChannel("JSX Preview");
@@ -99,18 +100,43 @@ async function openPreview(doc, ctx) {
     panels.set(filePath, panel);
     const msgDisposable = panel.webview.onDidReceiveMessage(async (msg) => {
         if (msg.type === "runInTerminal") {
-            const terminal = getOrCreateTerminal();
+            const terminalName = msg.terminalName || "JSX Preview";
+            const terminal = getOrCreateTerminal(terminalName);
             terminal.show(true);
-            terminal.sendText(msg.command);
+            // Reset run state for this panel
+            const state = { logOffset: 0, terminalName };
+            panelRunState.set(filePath, state);
             if (msg.outputPath && msg.processDate) {
                 const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ||
                     path.dirname(filePath);
                 const absOutputPath = path.resolve(workspaceRoot, msg.outputPath, msg.processDate);
+                const logFile = path.join(absOutputPath, "run.log");
+                const exitCodeFile = path.join(absOutputPath, "exit_code.txt");
+                // Wrap command: redirect stdout+stderr through tee → log file, capture exit code
+                const wrappedCmd = `mkdir -p ${shellQuote(absOutputPath)} && ` +
+                    `${msg.command} > >(tee ${shellQuote(logFile)}) 2>&1; ` +
+                    `echo $? > ${shellQuote(exitCodeFile)}`;
+                terminal.sendText(wrappedCmd);
                 const old = panelWatchers.get(filePath) || [];
                 old.forEach((w) => w.dispose());
-                const watchers = watchPipelineOutput(absOutputPath, panel);
+                const statusFile = msg.statusFile || "status.txt";
+                const detailFile = msg.detailFile || "detail.txt";
+                const watchers = watchPipelineOutput(absOutputPath, panel, state, statusFile, detailFile);
                 panelWatchers.set(filePath, watchers);
-                outputChannel.appendLine(`[CDL] Watching ${absOutputPath}`);
+                outputChannel.appendLine(`[Pipeline] Watching ${absOutputPath}`);
+                outputChannel.show(false); // reveal without stealing focus
+            }
+            else {
+                terminal.sendText(msg.command);
+            }
+        }
+        if (msg.type === "stopPipeline") {
+            const state = panelRunState.get(filePath);
+            const termName = state?.terminalName || "JSX Preview";
+            const terminal = vscode.window.terminals.find((t) => t.name === termName);
+            if (terminal) {
+                terminal.sendText("\x03"); // Ctrl+C
+                outputChannel.appendLine("[Pipeline] Stop signal sent (Ctrl+C)");
             }
         }
     });
@@ -120,6 +146,7 @@ async function openPreview(doc, ctx) {
         const watchers = panelWatchers.get(filePath) || [];
         watchers.forEach((w) => w.dispose());
         panelWatchers.delete(filePath);
+        panelRunState.delete(filePath);
     });
     await updatePreview(filePath, ctx);
 }
@@ -138,21 +165,21 @@ async function updatePreview(filePath, ctx) {
     }
 }
 // ─── Terminal ─────────────────────────────────────────────────────
-function getOrCreateTerminal() {
-    const existing = vscode.window.terminals.find((t) => t.name === "CDL Pipeline");
+function getOrCreateTerminal(name = "JSX Preview") {
+    const existing = vscode.window.terminals.find((t) => t.name === name);
     if (existing)
         return existing;
-    return vscode.window.createTerminal("CDL Pipeline");
+    return vscode.window.createTerminal(name);
 }
 // ─── File watcher ─────────────────────────────────────────────────
-function watchPipelineOutput(outputPath, panel) {
+function watchPipelineOutput(outputPath, panel, state, statusFileName, detailFileName) {
     const readAndPost = () => {
         const payload = { type: "pipelineResults" };
-        const statusFile = path.join(outputPath, "cms_sync_status.txt");
+        const statusFile = path.join(outputPath, statusFileName);
         if (fs.existsSync(statusFile)) {
             payload.status = parseStatusFile(fs.readFileSync(statusFile, "utf8"));
         }
-        const detailFile = path.join(outputPath, "cms_sync_detail.txt");
+        const detailFile = path.join(outputPath, detailFileName);
         if (fs.existsSync(detailFile)) {
             payload.detail = parseDetailFile(fs.readFileSync(detailFile, "utf8"));
         }
@@ -160,13 +187,46 @@ function watchPipelineOutput(outputPath, panel) {
             panel.webview.postMessage(payload);
         }
     };
-    const statusWatcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(vscode.Uri.file(outputPath), "cms_sync_status.txt"));
-    statusWatcher.onDidCreate(readAndPost);
-    statusWatcher.onDidChange(readAndPost);
-    const detailWatcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(vscode.Uri.file(outputPath), "cms_sync_detail.txt"));
-    detailWatcher.onDidCreate(readAndPost);
-    detailWatcher.onDidChange(readAndPost);
-    return [statusWatcher, detailWatcher];
+    // Incremental log streaming — only send new bytes since last read
+    const streamLog = () => {
+        const logFile = path.join(outputPath, "run.log");
+        if (!fs.existsSync(logFile))
+            return;
+        const buf = fs.readFileSync(logFile);
+        if (buf.length <= state.logOffset)
+            return;
+        const newContent = buf.slice(state.logOffset).toString("utf8");
+        state.logOffset = buf.length;
+        const lines = newContent.split("\n").filter((l) => l.length > 0);
+        if (lines.length === 0)
+            return;
+        lines.forEach((l) => outputChannel.appendLine(l));
+        panel.webview.postMessage({ type: "pipelineLog", lines });
+    };
+    const checkCompletion = () => {
+        const exitFile = path.join(outputPath, "exit_code.txt");
+        if (!fs.existsSync(exitFile))
+            return;
+        const raw = fs.readFileSync(exitFile, "utf8").trim();
+        const exitCode = parseInt(raw, 10);
+        if (isNaN(exitCode))
+            return;
+        const label = exitCode === 0 ? "success" : "failed";
+        outputChannel.appendLine(`[Pipeline] Process exited with code ${exitCode} (${label})`);
+        panel.webview.postMessage({ type: "pipelineComplete", exitCode });
+    };
+    const makeWatcher = (glob, cb) => {
+        const w = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(vscode.Uri.file(outputPath), glob));
+        w.onDidCreate(cb);
+        w.onDidChange(cb);
+        return w;
+    };
+    return [
+        makeWatcher(statusFileName, readAndPost),
+        makeWatcher(detailFileName, readAndPost),
+        makeWatcher("run.log", streamLog),
+        makeWatcher("exit_code.txt", checkCompletion),
+    ];
 }
 function parseStatusFile(content) {
     const result = {};
@@ -321,6 +381,9 @@ function buildErrorHtml(message) {
 </html>`;
 }
 // ─── Utilities ────────────────────────────────────────────────────
+function shellQuote(s) {
+    return `'${s.replace(/'/g, "'\\''")}'`;
+}
 function generateNonce() {
     const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
     let result = "";
